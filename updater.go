@@ -152,6 +152,24 @@ func (t *Target) Switch() error {
 	return nil
 }
 
+// Testboot marks the inactive root partition to be tested upon the next boot,
+// and made active if the test boot succeeds.
+func (t *Target) Testboot() error {
+	req, err := http.NewRequest("POST", t.baseURL+"update/testboot", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := t.doer.Do(req)
+	if err != nil {
+		return err
+	}
+	if got, want := resp.StatusCode, http.StatusOK; got != want {
+		body, _ := ioutil.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected HTTP status code: got %d, want %d (body %q)", got, want, string(body))
+	}
+	return nil
+}
+
 // Reboot reboots the target, picking up the updated partitions.
 func (t *Target) Reboot() error {
 	req, err := http.NewRequest("POST", t.baseURL+"reboot", nil)

@@ -13,6 +13,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -134,6 +135,28 @@ func (t *Target) StreamTo(dest string, r io.Reader) error {
 	return nil
 }
 
+// Put streams a file to the specified HTTP endpoint, without verifying its
+// hash. This is not suited for updating the system, which should be done via
+// StreamTo() instead. This function is useful for the /uploadtemp/ handler.
+func (t *Target) Put(dest string, r io.Reader) error {
+	req, err := http.NewRequest(http.MethodPut, t.baseURL+dest, r)
+	if err != nil {
+		return err
+	}
+	resp, err := t.doer.Do(req)
+	if err != nil {
+		return err
+	}
+	if got, want := resp.StatusCode, http.StatusOK; got != want {
+		if resp.StatusCode == http.StatusNotFound {
+			return fmt.Errorf("/uploadtemp/ handler not found, is your gokrazy installation too old?")
+		}
+		body, _ := ioutil.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected HTTP status code: got %v, want %v (body %q)", resp.Status, want, strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
 // Switch changes the active root partition from the currently running root
 // partition to the currently inactive root partition.
 func (t *Target) Switch() error {
@@ -183,6 +206,32 @@ func (t *Target) Reboot() error {
 	if got, want := resp.StatusCode, http.StatusOK; got != want {
 		body, _ := ioutil.ReadAll(resp.Body)
 		return fmt.Errorf("unexpected HTTP status code: got %d, want %d (body %q)", got, want, string(body))
+	}
+	return nil
+}
+
+// Divert makes gokrazy use the temporary binary (diversion) instead of
+// /user/<basename>. Includes an automatic service restart.
+func (t *Target) Divert(path, diversion string) error {
+	u, err := url.Parse(t.baseURL + "divert")
+	if err != nil {
+		return err
+	}
+	values := u.Query()
+	values.Set("path", path)
+	values.Set("diversion", diversion)
+	u.RawQuery = values.Encode()
+	req, err := http.NewRequest("POST", u.String(), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := t.doer.Do(req)
+	if err != nil {
+		return err
+	}
+	if got, want := resp.StatusCode, http.StatusOK; got != want {
+		body, _ := ioutil.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected HTTP status code: got %d, want %d (body %q)", got, want, strings.TrimSpace(string(body)))
 	}
 	return nil
 }

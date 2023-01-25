@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash"
@@ -212,22 +213,52 @@ func (t *Target) Reboot() error {
 
 // Divert makes gokrazy use the temporary binary (diversion) instead of
 // /user/<basename>. Includes an automatic service restart.
-func (t *Target) Divert(path, diversion string) error {
+func (t *Target) Divert(path, diversion string, flags []string) error {
 	u, err := url.Parse(t.baseURL + "divert")
 	if err != nil {
 		return err
 	}
-	values := u.Query()
-	values.Set("path", path)
-	values.Set("diversion", diversion)
-	u.RawQuery = values.Encode()
-	req, err := http.NewRequest("POST", u.String(), nil)
+	body, err := json.Marshal(struct {
+		Path      string
+		Diversion string
+		Flags     []string
+	}{
+		Path:      path,
+		Diversion: diversion,
+		Flags:     flags,
+	})
 	if err != nil {
 		return err
 	}
-	resp, err := t.doer.Do(req)
+	req, err := http.NewRequest("POST", u.String(), bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	if err != nil {
 		return err
+	}
+	var resp *http.Response
+	resp, err = t.doer.Do(req)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode == http.StatusBadRequest {
+		// A BadRequest could indicate that the server is running an older
+		// version of gokrazy which took diversion options as query
+		// parameters. Try this approach before giving up.
+		if len(flags) > 0 {
+			return fmt.Errorf("running version of gokrazy does not support command line arguments; try upgrading")
+		}
+		values := u.Query()
+		values.Set("path", path)
+		values.Set("diversion", diversion)
+		u.RawQuery = values.Encode()
+		req, err := http.NewRequest("POST", u.String(), nil)
+		if err != nil {
+			return err
+		}
+		resp, err = t.doer.Do(req)
+		if err != nil {
+			return err
+		}
 	}
 	if got, want := resp.StatusCode, http.StatusOK; got != want {
 		body, _ := ioutil.ReadAll(resp.Body)

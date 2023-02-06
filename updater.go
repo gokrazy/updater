@@ -213,7 +213,7 @@ func (t *Target) Reboot() error {
 
 // Divert makes gokrazy use the temporary binary (diversion) instead of
 // /user/<basename>. Includes an automatic service restart.
-func (t *Target) Divert(path, diversion string, flags []string) error {
+func (t *Target) Divert(path, diversion string, serviceFlags, commandLineFlags []string) error {
 	u, err := url.Parse(t.baseURL + "divert")
 	if err != nil {
 		return err
@@ -225,7 +225,7 @@ func (t *Target) Divert(path, diversion string, flags []string) error {
 	}{
 		Path:      path,
 		Diversion: diversion,
-		Flags:     flags,
+		Flags:     append(serviceFlags, commandLineFlags...),
 	})
 	if err != nil {
 		return err
@@ -244,7 +244,7 @@ func (t *Target) Divert(path, diversion string, flags []string) error {
 		// A BadRequest could indicate that the server is running an older
 		// version of gokrazy which took diversion options as query
 		// parameters. Try this approach before giving up.
-		if len(flags) > 0 {
+		if len(commandLineFlags) > 0 {
 			return fmt.Errorf("running version of gokrazy does not support command line arguments; try upgrading")
 		}
 		values := u.Query()

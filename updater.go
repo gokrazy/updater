@@ -13,6 +13,7 @@ import (
 	"hash/crc32"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -36,20 +37,22 @@ type Target struct {
 
 	baseURL  string
 	supports []string
+
+	eeprom EEPROMVersion
 }
 
 // NewTarget queries the target for supported update protocol features and
 // returns a ready-to-use updater Target.
 func NewTarget(baseURL string, httpClient HTTPDoer) (*Target, error) {
-	supports, err := targetSupports(baseURL, httpClient)
-	if err != nil {
+	target := &Target{
+		baseURL: baseURL,
+		doer:    httpClient,
+	}
+	if err := target.requestFeatures(); err != nil {
 		return nil, err
 	}
-	return &Target{
-		baseURL:  baseURL,
-		doer:     httpClient,
-		supports: supports,
-	}, nil
+
+	return target, nil
 }
 
 // A ProtocolFeature represents an optionally available feature of the update
@@ -267,27 +270,108 @@ func (t *Target) Divert(path, diversion string, serviceFlags, commandLineFlags [
 	return nil
 }
 
-func targetSupports(baseURL string, client HTTPDoer) ([]string, error) {
-	req, err := http.NewRequest("GET", baseURL+"update/features", nil)
+// InstalledEEPROM returns the Raspberry Pi EEPROM version currently installed
+// on the target device.
+func (t *Target) InstalledEEPROM() EEPROMVersion {
+	return t.eeprom
+}
+
+func (t *Target) requestFeatures() error {
+	req, err := http.NewRequest("GET", t.baseURL+"update/features", nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	resp, err := client.Do(req)
+
+	resp, err := t.doer.Do(req)
 	if err != nil {
-		return nil, err
+		return err
 	}
+
 	if resp.StatusCode == http.StatusNotFound {
 		// Target device does not support /features handler yet, so no features
 		// are supported.
-		return nil, nil
+		return nil
+	}
+
+	if got, want := resp.StatusCode, http.StatusOK; got != want {
+		body, _ := ioutil.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected HTTP status code: got %d, want %d (body %q)", got, want, string(body))
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/plain") {
+		// Target replied with a text/plain response (old behavior).
+		// Fall back to fetching the EEPROM version with a separate request.
+		er, err := t.getEEPROMFromStatus()
+		if err != nil {
+			log.Printf("could not get EEPROM version: %v", err)
+			er = &EEPROMVersion{}
+		}
+		t.supports = strings.Split(strings.TrimSpace(string(body)), ",")
+		t.eeprom = *er
+		return nil
+	}
+
+	// Target replied with a JSON response, including the EEPROM version.
+	var featuresResp struct {
+		Features string        `json:"features"`
+		EEPROM   EEPROMVersion `json:"EEPROM"`
+	}
+	if err := json.Unmarshal(body, &featuresResp); err != nil {
+		return err
+	}
+	t.supports = strings.Split(strings.TrimSpace(featuresResp.Features), ",")
+	t.eeprom = featuresResp.EEPROM
+	return nil
+}
+
+const jsonMIME = "application/json"
+
+// EEPROMVersion contains the signatures of a set of Raspberry Pi EEPROM files
+// (pieeprom.sig and vl805.sig). The signatures are sha256 sums (hexadecimal),
+// but you should treat them as opaque strings and only compare them.
+type EEPROMVersion struct {
+	PieepromSHA256 string // pieeprom.sig
+	VL805SHA256    string // vl805.sig
+}
+
+func (t *Target) getEEPROMFromStatus() (*EEPROMVersion, error) {
+	req, err := http.NewRequest("GET", t.baseURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	// See
+	// https://github.com/gokrazy/gokrazy/commit/d7743d90caf04e03c1d51b2d2e4a6d6984026228
+	// for why send the Content-Type header.
+	//
+	// TODO(after 2024): remove Content-Type, send only Accept
+	req.Header.Set("Content-Type", jsonMIME)
+	req.Header.Set("Accept", jsonMIME)
+	resp, err := t.doer.Do(req)
+	if err != nil {
+		return nil, err
 	}
 	if got, want := resp.StatusCode, http.StatusOK; got != want {
 		body, _ := ioutil.ReadAll(resp.Body)
-		return nil, fmt.Errorf("unexpected HTTP status code: got %d, want %d (body %q)", got, want, string(body))
+		return nil, fmt.Errorf("unexpected HTTP status code: got %d, want %d (body %q)", got, want, strings.TrimSpace(string(body)))
+	}
+	if got, want := resp.Header.Get("Content-Type"), jsonMIME; got != want {
+		return nil, fmt.Errorf("unexpected Content-Type: got %q, want %q", got, want)
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
-	return strings.Split(strings.TrimSpace(string(body)), ","), nil
+
+	var er struct {
+		EEPROM EEPROMVersion `json:"EEPROM"`
+	}
+	if err := json.Unmarshal(body, &er); err != nil {
+		return nil, fmt.Errorf("decoding response: %v", err)
+	}
+	return &er.EEPROM, nil
 }

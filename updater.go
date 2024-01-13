@@ -214,6 +214,25 @@ func (t *Target) Reboot() error {
 	return nil
 }
 
+// RebootWithoutKexec reboots the target without kexec, picking up the updated
+// partitions. This is useful for continuous integration testing to ensure the
+// bootloader is tested.
+func (t *Target) RebootWithoutKexec() error {
+	req, err := http.NewRequest("POST", t.baseURL+"reboot?kexec=off", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := t.doer.Do(req)
+	if err != nil {
+		return err
+	}
+	if got, want := resp.StatusCode, http.StatusOK; got != want {
+		body, _ := ioutil.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected HTTP status code: got %d, want %d (body %q)", got, want, string(body))
+	}
+	return nil
+}
+
 // Divert makes gokrazy use the temporary binary (diversion) instead of
 // /user/<basename>. Includes an automatic service restart.
 func (t *Target) Divert(path, diversion string, serviceFlags, commandLineFlags []string) error {

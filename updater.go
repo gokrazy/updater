@@ -4,6 +4,7 @@ package updater
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -43,12 +44,12 @@ type Target struct {
 
 // NewTarget queries the target for supported update protocol features and
 // returns a ready-to-use updater Target.
-func NewTarget(baseURL string, httpClient HTTPDoer) (*Target, error) {
+func NewTarget(ctx context.Context, baseURL string, httpClient HTTPDoer) (*Target, error) {
 	target := &Target{
 		baseURL: baseURL,
 		doer:    httpClient,
 	}
-	if err := target.requestFeatures(); err != nil {
+	if err := target.requestFeatures(ctx); err != nil {
 		return nil, err
 	}
 
@@ -98,7 +99,7 @@ func (t *Target) Supports(feature ProtocolFeature) bool {
 //
 // You can keep track of progress by passing in an io.TeeReader(r,
 // &countingWriter{}).
-func (t *Target) StreamTo(dest string, r io.Reader) error {
+func (t *Target) StreamTo(ctx context.Context, dest string, r io.Reader) error {
 	updateHash := t.Supports("updatehash")
 	var hash hash.Hash
 	if updateHash {
@@ -106,7 +107,7 @@ func (t *Target) StreamTo(dest string, r io.Reader) error {
 	} else {
 		hash = sha256.New()
 	}
-	req, err := http.NewRequest(http.MethodPut, t.baseURL+"update/"+dest, io.TeeReader(r, hash))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, t.baseURL+"update/"+dest, io.TeeReader(r, hash))
 	if err != nil {
 		return err
 	}
@@ -142,8 +143,8 @@ func (t *Target) StreamTo(dest string, r io.Reader) error {
 // Put streams a file to the specified HTTP endpoint, without verifying its
 // hash. This is not suited for updating the system, which should be done via
 // StreamTo() instead. This function is useful for the /uploadtemp/ handler.
-func (t *Target) Put(dest string, r io.Reader) error {
-	req, err := http.NewRequest(http.MethodPut, t.baseURL+dest, r)
+func (t *Target) Put(ctx context.Context, dest string, r io.Reader) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, t.baseURL+dest, r)
 	if err != nil {
 		return err
 	}
@@ -163,8 +164,8 @@ func (t *Target) Put(dest string, r io.Reader) error {
 
 // Switch changes the active root partition from the currently running root
 // partition to the currently inactive root partition.
-func (t *Target) Switch() error {
-	req, err := http.NewRequest("POST", t.baseURL+"update/switch", nil)
+func (t *Target) Switch(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, "POST", t.baseURL+"update/switch", nil)
 	if err != nil {
 		return err
 	}
@@ -181,8 +182,8 @@ func (t *Target) Switch() error {
 
 // Testboot marks the inactive root partition to be tested upon the next boot,
 // and made active if the test boot succeeds.
-func (t *Target) Testboot() error {
-	req, err := http.NewRequest("POST", t.baseURL+"update/testboot", nil)
+func (t *Target) Testboot(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, "POST", t.baseURL+"update/testboot", nil)
 	if err != nil {
 		return err
 	}
@@ -198,8 +199,8 @@ func (t *Target) Testboot() error {
 }
 
 // Reboot reboots the target, picking up the updated partitions.
-func (t *Target) Reboot() error {
-	req, err := http.NewRequest("POST", t.baseURL+"reboot", nil)
+func (t *Target) Reboot(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, "POST", t.baseURL+"reboot", nil)
 	if err != nil {
 		return err
 	}
@@ -217,8 +218,8 @@ func (t *Target) Reboot() error {
 // RebootWithoutKexec reboots the target without kexec, picking up the updated
 // partitions. This is useful for continuous integration testing to ensure the
 // bootloader is tested.
-func (t *Target) RebootWithoutKexec() error {
-	req, err := http.NewRequest("POST", t.baseURL+"reboot?kexec=off", nil)
+func (t *Target) RebootWithoutKexec(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, "POST", t.baseURL+"reboot?kexec=off", nil)
 	if err != nil {
 		return err
 	}
@@ -235,7 +236,7 @@ func (t *Target) RebootWithoutKexec() error {
 
 // Divert makes gokrazy use the temporary binary (diversion) instead of
 // /user/<basename>. Includes an automatic service restart.
-func (t *Target) Divert(path, diversion string, serviceFlags, commandLineFlags []string) error {
+func (t *Target) Divert(ctx context.Context, path, diversion string, serviceFlags, commandLineFlags []string) error {
 	u, err := url.Parse(t.baseURL + "divert")
 	if err != nil {
 		return err
@@ -252,7 +253,7 @@ func (t *Target) Divert(path, diversion string, serviceFlags, commandLineFlags [
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest("POST", u.String(), bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", u.String(), bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	if err != nil {
 		return err
@@ -273,7 +274,7 @@ func (t *Target) Divert(path, diversion string, serviceFlags, commandLineFlags [
 		values.Set("path", path)
 		values.Set("diversion", diversion)
 		u.RawQuery = values.Encode()
-		req, err := http.NewRequest("POST", u.String(), nil)
+		req, err := http.NewRequestWithContext(ctx, "POST", u.String(), nil)
 		if err != nil {
 			return err
 		}
@@ -295,8 +296,8 @@ func (t *Target) InstalledEEPROM() EEPROMVersion {
 	return t.eeprom
 }
 
-func (t *Target) requestFeatures() error {
-	req, err := http.NewRequest("GET", t.baseURL+"update/features", nil)
+func (t *Target) requestFeatures(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, "GET", t.baseURL+"update/features", nil)
 	if err != nil {
 		return err
 	}
@@ -325,7 +326,7 @@ func (t *Target) requestFeatures() error {
 	if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/plain") {
 		// Target replied with a text/plain response (old behavior).
 		// Fall back to fetching the EEPROM version with a separate request.
-		er, err := t.getEEPROMFromStatus()
+		er, err := t.getEEPROMFromStatus(ctx)
 		if err != nil {
 			log.Printf("could not get EEPROM version: %v", err)
 			er = &EEPROMVersion{}
@@ -358,8 +359,8 @@ type EEPROMVersion struct {
 	VL805SHA256    string // vl805.sig
 }
 
-func (t *Target) getEEPROMFromStatus() (*EEPROMVersion, error) {
-	req, err := http.NewRequest("GET", t.baseURL, nil)
+func (t *Target) getEEPROMFromStatus(ctx context.Context) (*EEPROMVersion, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", t.baseURL, nil)
 	if err != nil {
 		return nil, err
 	}

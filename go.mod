@@ -1,3 +1,3 @@
 module github.com/gokrazy/updater
 
-go 1.15
+go 1.24

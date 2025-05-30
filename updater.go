@@ -12,7 +12,6 @@ import (
 	"hash"
 	"hash/crc32"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -118,10 +117,10 @@ func (t *Target) StreamTo(dest string, r io.Reader) error {
 		return err
 	}
 	if got, want := resp.StatusCode, http.StatusOK; got != want {
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("unexpected HTTP status code: got %v, want %v (body %q)", resp.Status, want, string(body))
 	}
-	remoteHash, err := ioutil.ReadAll(resp.Body)
+	remoteHash, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
@@ -155,7 +154,7 @@ func (t *Target) Put(dest string, r io.Reader) error {
 		if resp.StatusCode == http.StatusNotFound {
 			return fmt.Errorf("/uploadtemp/ handler not found, is your gokrazy installation too old?")
 		}
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("unexpected HTTP status code: got %v, want %v (body %q)", resp.Status, want, strings.TrimSpace(string(body)))
 	}
 	return nil
@@ -173,7 +172,7 @@ func (t *Target) Switch() error {
 		return err
 	}
 	if got, want := resp.StatusCode, http.StatusOK; got != want {
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("unexpected HTTP status code: got %d, want %d (body %q)", got, want, string(body))
 	}
 	return nil
@@ -191,7 +190,7 @@ func (t *Target) Testboot() error {
 		return err
 	}
 	if got, want := resp.StatusCode, http.StatusOK; got != want {
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("unexpected HTTP status code: got %d, want %d (body %q)", got, want, string(body))
 	}
 	return nil
@@ -208,7 +207,7 @@ func (t *Target) Reboot() error {
 		return err
 	}
 	if got, want := resp.StatusCode, http.StatusOK; got != want {
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("unexpected HTTP status code: got %d, want %d (body %q)", got, want, string(body))
 	}
 	return nil
@@ -227,7 +226,7 @@ func (t *Target) RebootWithoutKexec() error {
 		return err
 	}
 	if got, want := resp.StatusCode, http.StatusOK; got != want {
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("unexpected HTTP status code: got %d, want %d (body %q)", got, want, string(body))
 	}
 	return nil
@@ -283,7 +282,7 @@ func (t *Target) Divert(path, diversion string, serviceFlags, commandLineFlags [
 		}
 	}
 	if got, want := resp.StatusCode, http.StatusOK; got != want {
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("unexpected HTTP status code: got %d, want %d (body %q)", got, want, strings.TrimSpace(string(body)))
 	}
 	return nil
@@ -313,11 +312,11 @@ func (t *Target) requestFeatures() error {
 	}
 
 	if got, want := resp.StatusCode, http.StatusOK; got != want {
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("unexpected HTTP status code: got %d, want %d (body %q)", got, want, string(body))
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
@@ -375,13 +374,13 @@ func (t *Target) getEEPROMFromStatus() (*EEPROMVersion, error) {
 		return nil, err
 	}
 	if got, want := resp.StatusCode, http.StatusOK; got != want {
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("unexpected HTTP status code: got %d, want %d (body %q)", got, want, strings.TrimSpace(string(body)))
 	}
 	if got, want := resp.Header.Get("Content-Type"), jsonMIME; got != want {
 		return nil, fmt.Errorf("unexpected Content-Type: got %q, want %q", got, want)
 	}
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}

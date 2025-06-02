@@ -72,6 +72,11 @@ const (
 	ProtocolFeatureUpdateHash ProtocolFeature = "updatehash"
 )
 
+// RebootOpts represents options for the reboot operation
+type RebootOpts struct {
+	Async bool
+}
+
 // Supports returns whether the target is known to support the specified update
 // protocol feature.
 func (t *Target) Supports(feature ProtocolFeature) bool {
@@ -198,8 +203,16 @@ func (t *Target) Testboot(ctx context.Context) error {
 }
 
 // Reboot reboots the target, picking up the updated partitions.
-func (t *Target) Reboot(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, "POST", t.baseURL+"reboot", nil)
+func (t *Target) Reboot(ctx context.Context, opts ...RebootOpts) error {
+	url := t.baseURL + "reboot"
+
+	for _, opt := range opts {
+		if opt.Async {
+			url += "?async=true"
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
 	if err != nil {
 		return err
 	}

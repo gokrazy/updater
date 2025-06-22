@@ -197,9 +197,55 @@ func (t *Target) Testboot(ctx context.Context) error {
 	return nil
 }
 
+// RebootOption configures a reboot operation.
+type RebootOption func(*rebootConfig)
+
+type rebootConfig struct {
+	kexec bool
+	async bool
+}
+
+// WithKexec configures whether to use kexec for rebooting.
+// When set to false, the target will reboot without kexec.
+func WithKexec(kexec bool) RebootOption {
+	return func(c *rebootConfig) {
+		c.kexec = kexec
+	}
+}
+
+// WithAsync configures whether to perform an asynchronous reboot.
+// When set to true, the target will reboot asynchronously.
+func WithAsync(async bool) RebootOption {
+	return func(c *rebootConfig) {
+		c.async = async
+	}
+}
+
 // Reboot reboots the target, picking up the updated partitions.
-func (t *Target) Reboot(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, "POST", t.baseURL+"reboot", nil)
+func (t *Target) Reboot(ctx context.Context, opts ...RebootOption) error {
+	config := &rebootConfig{
+		kexec: true,  // default to using kexec
+		async: false, // default to synchronous reboot
+	}
+
+	for _, opt := range opts {
+		opt(config)
+	}
+
+	url := t.baseURL + "reboot"
+	params := make([]string, 0)
+	if !config.kexec {
+		params = append(params, "kexec=off")
+	}
+	if config.async {
+		params = append(params, "async=true")
+	}
+
+	if len(params) > 0 {
+		url += "?" + strings.Join(params, "&")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
 	if err != nil {
 		return err
 	}
@@ -217,20 +263,10 @@ func (t *Target) Reboot(ctx context.Context) error {
 // RebootWithoutKexec reboots the target without kexec, picking up the updated
 // partitions. This is useful for continuous integration testing to ensure the
 // bootloader is tested.
+//
+// Deprecated: Use Reboot(ctx, WithKexec(false)) instead.
 func (t *Target) RebootWithoutKexec(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, "POST", t.baseURL+"reboot?kexec=off", nil)
-	if err != nil {
-		return err
-	}
-	resp, err := t.doer.Do(req)
-	if err != nil {
-		return err
-	}
-	if got, want := resp.StatusCode, http.StatusOK; got != want {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("unexpected HTTP status code: got %d, want %d (body %q)", got, want, string(body))
-	}
-	return nil
+	return t.Reboot(ctx, WithKexec(false))
 }
 
 // Divert makes gokrazy use the temporary binary (diversion) instead of

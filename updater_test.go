@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"hash/crc32"
 	"io"
 	"net/http"
@@ -130,5 +131,24 @@ func TestResponseBodyLeak(t *testing.T) {
 	cls := closures.Load()
 	if leaked := req - cls; leaked > 0 {
 		t.Errorf("%d requests, %d bodies closed, %d bodies leaked", req, cls, leaked)
+	}
+}
+
+// TestStreamToNotImplemented verifies that a 404 for an update handler the
+// target does not register (e.g. a device-specific bootloader handler on a
+// device model gokrazy does not know) is reported as
+// ErrUpdateHandlerNotImplemented, so that callers can skip it.
+func TestStreamToNotImplemented(t *testing.T) {
+	srv := fakeGokrazy(t)
+
+	ctx := context.Background()
+	target, err := updater.NewTarget(ctx, srv.URL+"/", srv.Client())
+	if err != nil {
+		t.Fatalf("NewTarget: %v", err)
+	}
+
+	err = target.StreamTo(ctx, "device-specific/u-boot-rockchip.bin", strings.NewReader("hello"))
+	if !errors.Is(err, updater.ErrUpdateHandlerNotImplemented) {
+		t.Fatalf("StreamTo: got %v, want %v", err, updater.ErrUpdateHandlerNotImplemented)
 	}
 }

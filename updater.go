@@ -118,6 +118,11 @@ func (t *Target) StreamTo(ctx context.Context, dest string, r io.Reader) error {
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		// Newer gokrazy versions answer requests for unregistered handlers
+		// with a plain 404 instead of the HTML status page.
+		return ErrUpdateHandlerNotImplemented
+	}
 	if got, want := resp.StatusCode, http.StatusOK; got != want {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("unexpected HTTP status code: got %v, want %v (body %q)", resp.Status, want, string(body))
